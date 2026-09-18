@@ -1,0 +1,76 @@
+name: Update note articles
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  update-note:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get note RSS
+        run: |
+          python - <<'PY'
+          import urllib.request
+          import xml.etree.ElementTree as ET
+          import html
+
+          url = "https://note.com/lettertoyou/rss"
+          data = urllib.request.urlopen(url).read()
+          root = ET.fromstring(data)
+
+          items = root.findall(".//item")
+
+          output = []
+
+          for item in items[:20]:
+              title = item.findtext("title", "")
+              link = item.findtext("link", "")
+              date = item.findtext("pubDate", "")
+
+              output.append(
+                  f'<article class="content-item">'
+                  f'<p class="item-meta">note</p>'
+                  f'<h2><a href="{html.escape(link)}" target="_blank" rel="noopener">{html.escape(title)}</a></h2>'
+                  f'<p>{html.escape(date)}</p>'
+                  f'</article>'
+              )
+
+          with open("note-list.html", "w", encoding="utf-8") as f:
+              f.write("\n".join(output))
+          PY
+
+      - name: Insert articles into writing.html
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          writing = Path("writing.html")
+          note_list = Path("note-list.html").read_text(encoding="utf-8")
+          text = writing.read_text(encoding="utf-8")
+
+          start = '<div id="note-list">'
+          end = '</div>'
+
+          a = text.find(start)
+          b = text.find(end, a)
+
+          if a != -1 and b != -1:
+              new = start + "\n" + note_list + "\n  " + end
+              text = text[:a] + new + text[b + len(end):]
+
+          writing.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add writing.html note-list.html
+          git diff --cached --quiet || git commit -m "Update note articles"
+          git push
